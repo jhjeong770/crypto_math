@@ -16,10 +16,12 @@
 ## 실행 방법
 Rust와 Cargo가 설치된 환경에서 아래 명령어를 통해 즉시 실행할 수 있습니다.
 
+```bash
+cargo run --release
+```
+
 ## 향후 연구 과제 (To-Do)
 [ ] 스크래치패드(Scratchpad)를 도입하여 재귀 호출 시 힙 메모리 할당(Zero-Copy) 완벽 제거
 
 [ ] 나눗셈 연산 속도를 비약적으로 높이는 몽고메리 감산(Montgomery Reduction) 도입
 
-```bash
-cargo run --release
