@@ -1,27 +1,29 @@
-# 🧮 Crypto Math: High-Performance BigInt in Rust
+# CryptoMath: Pure Rust High-Performance Cryptography Engine
 
-![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)
-![Rayon](https://img.shields.io/badge/Rayon-Parallel_Computing-blue?style=for-the-badge)
+## Overview
+**CryptoMath**는 공부를 위해 외부 의존성(Crate) 없이 100% 순수 Rust 표준 라이브러리만으로 밑바닥부터 구현한 고성능 거대 정수(BigInt) 및 암호학 연산 엔진입니다. 
+단순한 기능 구현을 넘어, 수학적 알고리즘(대수학/정수론)과 시스템 프로그래밍(메모리 최적화)의 결합을 통해 CPU 사이클과 메모리 사용량을 극한으로 최적화하도록 설계되었습니다.
 
-이 프로젝트는 거대 정수(BigInt)의 대수적 연산과 카라츠바(Karatsuba) 알고리즘을 밑바닥부터 직접 구현하며, 컴퓨터 구조적 최적화를 연구한 Rust 레포지토리입니다.
+## Key Features
 
-## 프로젝트 목적
-단순히 수학 공식을 코드로 옮기는 것을 넘어, **메모리 안전성(Ownership), 힙 할당 최소화, 그리고 멀티스레딩**을 통해 CPU 하드웨어의 성능을 극한으로 끌어내는 시스템 엔지니어링을 실험합니다.
+* **Zero-Copy Karatsuba Multiplication ($O(n^{1.585})$)**
+  * 힙 메모리 할당(`Vec::new()`)을 완벽히 제거한 In-place 슬라이스(`&mut [u32]`) 기반 연산 적용
+  * 재귀 호출 시 Scratchpad 메모리 분할(Partitioning) 기법을 도입하여 병목 현상 제거
+* **Montgomery Reduction (REDC)**
+  * 값비싼 모듈로 나눗셈(`%`) 연산을 컴퓨터가 처리하기 쉬운 비트 시프트(`>>`)와 덧셈으로 완전 치환
+  * 현실 세계의 정수와 몽고메리 거울 공간(Domain) 간의 $O(1)$ 변환 포털 구현
+* **High-Speed Modular Exponentiation**
+  * Square-and-Multiply 기법과 몽고메리 연산을 결합하여 나눗셈 회로 없이 $O(\log B)$ 시간 복잡도로 거듭제곱 수행
+* **Miller-Rabin Primality Test**
+  * 유한체 위에서 1의 자명하지 않은 제곱근(Non-trivial square root) 성질을 활용한 초고속 거대 소수 판별기
 
-## 핵심 구현 사항
-- **Custom BigInt**: `Vec<u32>`를 활용한 가변 길이 정수 자료구조 및 기초 연산(Add, Sub, Rem)
-- **Karatsuba Algorithm**: 일반적인 $O(n^2)$ 곱셈의 시간 복잡도를 $O(n^{1.585})$로 단축한 분할 정복 연산
-- **Multi-threading Optimization**: `rayon` 라이브러리의 Work-stealing 기법을 활용하여, 거대한 수의 곱셈 트리를 다중 CPU 코어에 병렬로 분산 처리
+## Engineering Philosophy
+이 프로젝트는 두 가지 철학을 바탕으로 구축되었습니다:
+1. **System Engineering:** 가비지 컬렉터(GC)가 없는 Rust의 소유권(Ownership) 및 Borrow Checker 규칙을 활용해, 캐시 적중률을 높이고 운영체제의 개입(메모리 재할당)을 차단합니다.
+2. **Abstract Algebra:** 정수론의 합동식(Congruence) 이론을 소프트웨어 구조로 매핑하여 알고리즘의 본질적인 시간 복잡도를 낮춥니다.
 
-## 실행 방법
-Rust와 Cargo가 설치된 환경에서 아래 명령어를 통해 즉시 실행할 수 있습니다.
+## Usage
+프로젝트를 복제한 후, Rust의 최적화 컴파일 플래그를 켜서 실행하면 가장 압도적인 성능을 확인할 수 있습니다.
 
 ```bash
 cargo run --release
-```
-
-## 향후 연구 과제 (To-Do)
-[ ] 스크래치패드(Scratchpad)를 도입하여 재귀 호출 시 힙 메모리 할당(Zero-Copy) 완벽 제거
-
-[ ] 나눗셈 연산 속도를 비약적으로 높이는 몽고메리 감산(Montgomery Reduction) 도입
-

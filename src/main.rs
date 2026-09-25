@@ -1,15 +1,30 @@
 use std::cmp::Ordering;
 
 // ====================================================================
-// 1. 거대 정수 (BigInt) 자료구조 및 기본 메서드
+// [Chapter 1] 거대 정수 (BigInt) 자료구조 및 유틸리티
 // ====================================================================
 #[derive(Debug, Clone)]
 pub struct BigInt {
-    pub digits: Vec<u32>,
+    pub digits: Vec<u32>, // Little-endian 저장 방식
 }
 
 impl BigInt {
-    /// 불필요한 상위 0을 제거합니다.
+    /// 32비트 정수로부터 BigInt 생성
+    pub fn from_u32(val: u32) -> Self {
+        BigInt { digits: vec![val] }.trim_zeros()
+    }
+
+    /// 값이 1인지 확인
+    pub fn is_one(&self) -> bool {
+        self.digits.len() == 1 && self.digits[0] == 1
+    }
+
+    /// 짝수 판별 (하위 1비트 검사)
+    pub fn is_even(&self) -> bool {
+        self.digits[0] & 1 == 0
+    }
+
+    /// 불필요한 상위 0 제거
     pub fn trim_zeros(mut self) -> Self {
         while self.digits.len() > 1 && *self.digits.last().unwrap() == 0 {
             self.digits.pop();
@@ -17,7 +32,7 @@ impl BigInt {
         self
     }
 
-    /// 두 BigInt의 크기를 비교합니다.
+    /// 두 BigInt 크기 비교
     pub fn cmp(&self, other: &Self) -> Ordering {
         let a = self.clone().trim_zeros();
         let b = other.clone().trim_zeros();
@@ -33,14 +48,44 @@ impl BigInt {
         Ordering::Equal
     }
 
-    /// 뺄셈 래퍼 함수 (반드시 self >= other 일 때만 사용)
+    pub fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+
+    /// 뺄셈 (반드시 self >= other 가정)
     pub fn sub(&self, other: &Self) -> Self {
         let mut out = vec![0u32; self.digits.len()];
         sub_slices(&self.digits, &other.digits, &mut out);
         BigInt { digits: out }.trim_zeros()
     }
 
-    /// Zero-Copy 카라츠바 곱셈 진입점
+    /// 비트 우측 시프트 (n-1 = 2^s * d 분해 시 사용)
+    pub fn shr(&self, shift: u32) -> Self {
+        let mut out = self.digits.clone();
+        let word_shift = (shift / 32) as usize;
+        let bit_shift = shift % 32;
+        
+        if word_shift > 0 {
+            if word_shift >= out.len() { return BigInt::from_u32(0); }
+            out.drain(0..word_shift);
+        }
+        
+        if bit_shift > 0 {
+            let mut carry = 0u32;
+            for i in (0..out.len()).rev() {
+                let current = out[i];
+                out[i] = (current >> bit_shift) | (carry << (32 - bit_shift));
+                carry = current & ((1 << bit_shift) - 1);
+            }
+        }
+        BigInt { digits: out }.trim_zeros()
+    }
+}
+
+// ====================================================================
+// [Chapter 2] Zero-Copy 카라츠바 곱셈 엔진 (O(n^1.585))
+// ====================================================================
+impl BigInt {
     pub fn mul_karatsuba(&self, other: &Self) -> Self {
         let max_len = std::cmp::max(self.digits.len(), other.digits.len());
         let mut out = vec![0u32; self.digits.len() + other.digits.len()];
@@ -51,9 +96,6 @@ impl BigInt {
     }
 }
 
-// ====================================================================
-// 2. 시스템 레벨 최적화 코어 (Zero-Copy 슬라이스 연산)
-// ====================================================================
 fn add_slices(x: &[u32], y: &[u32], out: &mut [u32]) {
     let mut carry = 0u64;
     let max_len = std::cmp::max(x.len(), y.len());
@@ -83,8 +125,6 @@ fn sub_slices(x: &[u32], y: &[u32], out: &mut [u32]) {
     }
 }
 
-/// x에서 y를 제자리(in-place)에서 뺍니다. (x = x - y)
-/// Borrow Checker 충돌을 피하기 위해 추가된 함수입니다.
 fn sub_assign(x: &mut [u32], y: &[u32]) {
     let mut borrow = 0i64;
     for i in 0..x.len() {
@@ -141,7 +181,6 @@ fn karatsuba_core(x: &[u32], y: &[u32], out: &mut [u32], scratch: &mut [u32]) {
 
     karatsuba_core(sum_x, sum_y, z1_temp, next_scratch);
 
-    // Borrow Checker 에러 해결: In-place 뺄셈 함수 사용
     sub_assign(z1_temp, out_z0);
     sub_assign(z1_temp, out_z2);
 
@@ -164,7 +203,7 @@ fn karatsuba_core(x: &[u32], y: &[u32], out: &mut [u32], scratch: &mut [u32]) {
 }
 
 // ====================================================================
-// 3. 몽고메리 감산 및 모듈로 거듭제곱 (Montgomery Reduction)
+// [Chapter 3] 몽고메리 감산 엔진 (나눗셈 없는 모듈로 연산)
 // ====================================================================
 #[derive(Debug, Clone)]
 pub struct MontgomeryContext {
@@ -176,29 +215,21 @@ pub struct MontgomeryContext {
 
 impl MontgomeryContext {
     pub fn new(n: BigInt) -> Self {
-        assert!(n.digits[0] & 1 == 1, "Modulus N must be odd for Montgomery Reduction.");
-        
+        assert!(n.digits[0] & 1 == 1, "Modulus N must be odd");
         let r_bits = n.digits.len() * 32;
         let n_prime = Self::compute_n_prime(n.digits[0]);
 
-        let mut r_sq = BigInt { digits: vec![1] };
+        let mut r_sq = BigInt::from_u32(1);
         for _ in 0..(2 * r_bits) {
             let mut out = vec![0; r_sq.digits.len() + 1];
             add_slices(&r_sq.digits, &r_sq.digits, &mut out); 
             r_sq = BigInt { digits: out }.trim_zeros();
             
-            // Ordering 비교 에러 해결
             if r_sq.cmp(&n) != Ordering::Less {
                 r_sq = r_sq.sub(&n);
             }
         }
-
-        MontgomeryContext {
-            modulus: n,
-            r_bits,
-            n_prime,
-            r_squared: r_sq,
-        }
+        MontgomeryContext { modulus: n, r_bits, n_prime, r_squared: r_sq }
     }
 
     fn compute_n_prime(n0: u32) -> u32 {
@@ -211,9 +242,7 @@ impl MontgomeryContext {
 
     pub fn reduce(&self, mut t: BigInt) -> BigInt {
         let n_len = self.modulus.digits.len();
-        if t.digits.len() < n_len * 2 {
-            t.digits.resize(n_len * 2, 0);
-        }
+        if t.digits.len() < n_len * 2 { t.digits.resize(n_len * 2, 0); }
 
         for i in 0..n_len {
             let t_i = t.digits[i];
@@ -236,10 +265,7 @@ impl MontgomeryContext {
             }
         }
 
-        let result_digits = t.digits[n_len..].to_vec();
-        let mut result = BigInt { digits: result_digits };
-        
-        // Ordering 비교 에러 해결
+        let mut result = BigInt { digits: t.digits[n_len..].to_vec() };
         if result.cmp(&self.modulus) != Ordering::Less {
             result = result.sub(&self.modulus); 
         }
@@ -260,16 +286,13 @@ impl MontgomeryContext {
 
     pub fn mod_pow(&self, a: &BigInt, b: &BigInt) -> BigInt {
         let mut base_bar = self.into_domain(a);
-        let one = BigInt { digits: vec![1] };
-        let mut res_bar = self.into_domain(&one);
+        let mut res_bar = self.into_domain(&BigInt::from_u32(1));
 
         for (i, &digit) in b.digits.iter().enumerate() {
             let mut current_bits = digit;
             let bit_len = if i == b.digits.len() - 1 {
                 32 - current_bits.leading_zeros()
-            } else {
-                32
-            };
+            } else { 32 };
 
             for _ in 0..bit_len {
                 if current_bits & 1 == 1 {
@@ -284,21 +307,76 @@ impl MontgomeryContext {
 }
 
 // ====================================================================
-// 4. 테스트 실행 (Main)
+// [Chapter 4] 밀러-라빈 소수 판별기 (Miller-Rabin Primality Test)
+// ====================================================================
+impl BigInt {
+    pub fn is_probably_prime(&self) -> bool {
+        if self.eq(&BigInt::from_u32(2)) || self.eq(&BigInt::from_u32(3)) { return true; }
+        if self.cmp(&BigInt::from_u32(1)) != Ordering::Greater || self.is_even() { return false; }
+
+        let n_minus_1 = self.sub(&BigInt::from_u32(1));
+        
+        let mut s = 0;
+        for &digit in &n_minus_1.digits {
+            if digit == 0 {
+                s += 32;
+            } else {
+                s += digit.trailing_zeros();
+                break;
+            }
+        }
+        let d = n_minus_1.shr(s); 
+
+        let ctx = MontgomeryContext::new(self.clone());
+        let bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+
+        for &a in &bases {
+            let base = BigInt::from_u32(a);
+            if self.cmp(&base) != Ordering::Greater { break; }
+
+            let x = ctx.mod_pow(&base, &d);
+            if x.is_one() || x.eq(&n_minus_1) { continue; }
+
+            let mut x_bar = ctx.into_domain(&x);
+            let mut passed = false;
+
+            for _ in 1..s {
+                x_bar = ctx.mul_in_domain(&x_bar, &x_bar);
+                let current_x = ctx.out_of_domain(&x_bar);
+                
+                if current_x.eq(&n_minus_1) {
+                    passed = true;
+                    break; 
+                }
+            }
+            if !passed { return false; }
+        }
+        true
+    }
+}
+
+// ====================================================================
+// [Chapter 5] Main 실행부
 // ====================================================================
 fn main() {
-    println!("--- 몽고메리 감산 기반 고성능 모듈로 거듭제곱 테스트 ---");
+    println!("=== 고성능 암호학 엔진 ===");
     
-    let a = BigInt { digits: vec![123456789] };
-    let b = BigInt { digits: vec![987654321] };
-    let n = BigInt { digits: vec![1000000007] }; 
-    
-    let ctx = MontgomeryContext::new(n.clone());
-    let result = ctx.mod_pow(&a, &b);
-    
-    println!("A = {:?}", a.digits);
-    println!("B = {:?}", b.digits);
-    println!("N = {:?}", n.digits);
-    println!("Result (A^B mod N) = {:?}", result.digits);
-    println!("성공적으로 나눗셈 없는 모듈로 거듭제곱 연산을 완료했습니다!");
+    // 테스트 1: 메르센 소수 (2^31 - 1)
+    let p1 = BigInt::from_u32(2147483647);
+    println!("숫자 2,147,483,647 판별 중...");
+    if p1.is_probably_prime() {
+        println!(" => 완벽한 소수입니다! (밀러-라빈 검증 통과)\n");
+    } else {
+        println!(" => 합성수입니다.\n");
+    }
+
+    // 테스트 2: 합성수 (2147483647 + 2 = 2147483649)
+    // u32 범위를 활용하기 위해 배열 구조 직접 할당
+    let p2 = BigInt { digits: vec![2147483649] };
+    println!("숫자 2,147,483,649 판별 중...");
+    if p2.is_probably_prime() {
+        println!(" => 완벽한 소수입니다! (밀러-라빈 검증 통과)\n");
+    } else {
+        println!(" => 합성수입니다. (제곱근 충돌 감지)\n");
+    }
 }
