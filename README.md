@@ -16,6 +16,8 @@
   * Square-and-Multiply 기법과 몽고메리 연산을 결합하여 나눗셈 회로 없이 $O(\log B)$ 시간 복잡도로 거듭제곱 수행
 * **Miller-Rabin Primality Test**
   * 유한체 위에서 1의 자명하지 않은 제곱근(Non-trivial square root) 성질을 활용한 초고속 거대 소수 판별기
+* **RSA Cryptosystem Integration**
+  * 구현된 거대 정수 모듈로 연산기를 조립하여 구축한 RSA 공개키 암호화 및 복호화 시스템
 
 ## Engineering Philosophy
 이 프로젝트는 두 가지 철학을 바탕으로 구축되었습니다:

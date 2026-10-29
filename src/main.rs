@@ -9,22 +9,18 @@ pub struct BigInt {
 }
 
 impl BigInt {
-    /// 32비트 정수로부터 BigInt 생성
     pub fn from_u32(val: u32) -> Self {
         BigInt { digits: vec![val] }.trim_zeros()
     }
 
-    /// 값이 1인지 확인
     pub fn is_one(&self) -> bool {
         self.digits.len() == 1 && self.digits[0] == 1
     }
 
-    /// 짝수 판별 (하위 1비트 검사)
     pub fn is_even(&self) -> bool {
         self.digits[0] & 1 == 0
     }
 
-    /// 불필요한 상위 0 제거
     pub fn trim_zeros(mut self) -> Self {
         while self.digits.len() > 1 && *self.digits.last().unwrap() == 0 {
             self.digits.pop();
@@ -32,7 +28,6 @@ impl BigInt {
         self
     }
 
-    /// 두 BigInt 크기 비교
     pub fn cmp(&self, other: &Self) -> Ordering {
         let a = self.clone().trim_zeros();
         let b = other.clone().trim_zeros();
@@ -52,14 +47,12 @@ impl BigInt {
         self.cmp(other) == Ordering::Equal
     }
 
-    /// 뺄셈 (반드시 self >= other 가정)
     pub fn sub(&self, other: &Self) -> Self {
         let mut out = vec![0u32; self.digits.len()];
         sub_slices(&self.digits, &other.digits, &mut out);
         BigInt { digits: out }.trim_zeros()
     }
 
-    /// 비트 우측 시프트 (n-1 = 2^s * d 분해 시 사용)
     pub fn shr(&self, shift: u32) -> Self {
         let mut out = self.digits.clone();
         let word_shift = (shift / 32) as usize;
@@ -356,27 +349,58 @@ impl BigInt {
 }
 
 // ====================================================================
-// [Chapter 5] Main 실행부
+// [Chapter 5] RSA 암호 시스템 (RSA Cryptosystem)
 // ====================================================================
-fn main() {
-    println!("=== 고성능 암호학 엔진 ===");
-    
-    // 테스트 1: 메르센 소수 (2^31 - 1)
-    let p1 = BigInt::from_u32(2147483647);
-    println!("숫자 2,147,483,647 판별 중...");
-    if p1.is_probably_prime() {
-        println!(" => 완벽한 소수입니다! (밀러-라빈 검증 통과)\n");
-    } else {
-        println!(" => 합성수입니다.\n");
+pub struct RSA {
+    pub n: BigInt, // 공개 모듈러스 (p * q)
+    pub e: BigInt, // 공개 지수
+    pub d: BigInt, // 비밀 지수 (개인키)
+}
+
+impl RSA {
+    pub fn encrypt(&self, message: &BigInt) -> BigInt {
+        if message.cmp(&self.n) != Ordering::Less {
+            panic!("메시지(M)는 모듈러스(N)보다 작아야 합니다!");
+        }
+        let ctx = MontgomeryContext::new(self.n.clone());
+        ctx.mod_pow(message, &self.e)
     }
 
-    // 테스트 2: 합성수 (2147483647 + 2 = 2147483649)
-    // u32 범위를 활용하기 위해 배열 구조 직접 할당
-    let p2 = BigInt { digits: vec![2147483649] };
-    println!("숫자 2,147,483,649 판별 중...");
-    if p2.is_probably_prime() {
-        println!(" => 완벽한 소수입니다! (밀러-라빈 검증 통과)\n");
-    } else {
-        println!(" => 합성수입니다. (제곱근 충돌 감지)\n");
+    pub fn decrypt(&self, ciphertext: &BigInt) -> BigInt {
+        let ctx = MontgomeryContext::new(self.n.clone());
+        ctx.mod_pow(ciphertext, &self.d)
+    }
+}
+
+// ====================================================================
+// [Chapter 6] Main 실행부 (테스트)
+// ====================================================================
+fn main() {
+    println!("=== 자체 제작 고성능 암호학 엔진 테스트 ===");
+    
+    // 1. 밀러-라빈 소수 판별 테스트
+    let p1 = BigInt::from_u32(2147483647); // 메르센 소수
+    println!("\n[1] 밀러-라빈 소수 판별");
+    println!("숫자 2,147,483,647은 소수인가? => {}", p1.is_probably_prime());
+
+    // 2. RSA 암호화/복호화 시뮬레이션
+    println!("\n[2] RSA 암호 시스템");
+    let rsa = RSA {
+        n: BigInt::from_u32(3233), // 61 * 53
+        e: BigInt::from_u32(17),   // 공개키
+        d: BigInt::from_u32(2753), // 개인키
+    };
+
+    let secret_message = BigInt::from_u32(1234);
+    println!("원본 평문 메시지: {:?}", secret_message.digits);
+
+    let encrypted = rsa.encrypt(&secret_message);
+    println!("암호화된 메시지(Ciphertext): {:?}", encrypted.digits);
+
+    let decrypted = rsa.decrypt(&encrypted);
+    println!("복호화된 메시지(Decrypted): {:?}", decrypted.digits);
+
+    if secret_message.eq(&decrypted) {
+        println!("=> RSA 암호화/복호화 왕복 테스트 성공!");
     }
 }
